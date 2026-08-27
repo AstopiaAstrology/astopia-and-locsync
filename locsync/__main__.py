@@ -9,6 +9,8 @@ def main() -> int:
     ap = argparse.ArgumentParser("locsync")
     ap.add_argument("op", choices=["push", "pull", "validate"])
     ap.add_argument("--config", default="locsync.config.json")
+    ap.add_argument("--strict", action="store_true",
+                    help="validate: fail on untranslated keys too")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -20,7 +22,7 @@ def main() -> int:
         out = pull(cfg)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
-    out, code = validate(cfg)
+    out, code = validate(cfg, strict=args.strict)
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return code
 

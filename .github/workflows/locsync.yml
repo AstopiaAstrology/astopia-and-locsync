@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: false
+      strict:
+        description: "validate: fail also on untranslated keys"
+        required: false
+        type: boolean
+        default: false
     secrets:
       GOOGLE_SA_JSON:
         required: true
@@ -45,7 +50,10 @@ jobs:
       - name: Run ${{ inputs.op }}
         env:
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-        run: python -m locsync ${{ inputs.op }} --config "${{ inputs.config_path }}"
+        run: |
+          FLAGS=""
+          if [[ "${{ inputs.strict }}" == "true" ]]; then FLAGS="--strict"; fi
+          python -m locsync ${{ inputs.op }} --config "${{ inputs.config_path }}" $FLAGS
 
       - name: Open PR on translation changes
         if: inputs.op == 'pull' && inputs.open_pr_on_changes

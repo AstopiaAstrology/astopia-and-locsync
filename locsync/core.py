@@ -127,31 +127,38 @@ def pull(config: dict) -> dict:
 
 # ---------------- validate ----------------
 
-def validate(config: dict) -> Tuple[dict, int]:
+def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
+    """Validate source ↔ sheet consistency.
+
+    Hard errors (always fail): placeholder mismatch, orphan keys in sheet.
+    Soft (fail only in --strict): missing translations per locale.
+    New-in-PR keys never fail: post-merge push will add them.
+    """
     src = load_source(config["res_dir"])
     src_strings = {e.key: e for e in src if e.kind == "string"}
 
     sc = SheetClient(config["spreadsheet_id"])
     summary: Dict[str, dict] = {}
     errors: List[str] = []
+    warnings: List[str] = []
 
     for locale in config["locales"]:
         rows = {r.key: r for r in sc.read_rows(locale)}
 
-        # Missing keys
-        for k in src_strings:
-            if k not in rows:
-                errors.append(f"[{locale}] missing key: {k}")
-        # Reintroduced/removed keys
         for k in rows:
             if k not in src_strings:
-                errors.append(f"[{locale}] reintroduced/unknown key present in sheet: {k}")
+                errors.append(f"[{locale}] orphan key in sheet not in source xml: {k}")
 
         translated = 0
         missing = 0
+        new_in_pr = 0
         for k, src_e in src_strings.items():
             r = rows.get(k)
-            if not r or not r.value:
+            if r is None:
+                new_in_pr += 1
+                missing += 1
+                continue
+            if not r.value:
                 missing += 1
                 continue
             translated += 1
@@ -162,11 +169,16 @@ def validate(config: dict) -> Tuple[dict, int]:
                     f"[{locale}] placeholder mismatch for {k!r}: "
                     f"source={src_ph} target={tgt_ph}"
                 )
+        if new_in_pr:
+            warnings.append(f"[{locale}] {new_in_pr} new key(s) not yet in sheet — will be pushed post-merge")
+        if strict and missing:
+            errors.append(f"[{locale}] {missing} untranslated keys (strict mode)")
         summary[locale] = {
             "total": len(src_strings), "translated": translated, "missing": missing,
         }
 
-    result = {"op": "validate", "summary": summary, "errors": errors}
+    result = {"op": "validate", "summary": summary,
+              "errors": errors, "warnings": warnings}
     return result, (1 if errors else 0)
 
 
