@@ -1,0 +1,66 @@
+name: locsync (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      op:
+        description: "push | pull | validate"
+        required: true
+        type: string
+      config_path:
+        description: "Path to locsync.config.json in the caller repo"
+        required: false
+        type: string
+        default: "locsync.config.json"
+      locsync_ref:
+        description: "Git ref of astopia-and-locsync to install"
+        required: false
+        type: string
+        default: "main"
+      open_pr_on_changes:
+        description: "For pull: open a PR if translations changed"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      GOOGLE_SA_JSON:
+        required: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Install locsync
+        run: pip install "git+https://github.com/AstopiaAstrology/astopia-and-locsync.git@${{ inputs.locsync_ref }}"
+
+      - name: Run ${{ inputs.op }}
+        env:
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+        run: python -m locsync ${{ inputs.op }} --config "${{ inputs.config_path }}"
+
+      - name: Open PR on translation changes
+        if: inputs.op == 'pull' && inputs.open_pr_on_changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name  "locsync-bot"
+            git config user.email "locsync-bot@users.noreply.github.com"
+            BR="locsync/update-$(date +%Y%m%d-%H%M%S)"
+            git checkout -b "$BR"
+            git add -A
+            git commit -m "chore(i18n): sync translations from Sheet"
+            git push -u origin "$BR"
+            gh pr create --fill --title "chore(i18n): sync translations from Sheet" || true
+          else
+            echo "No translation changes."
+          fi

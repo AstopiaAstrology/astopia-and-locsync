@@ -1,0 +1,7 @@
+{
+  "spreadsheet_id": "1u-0PlPiRwhkcraTW3q62UIEr42uM_FXgcTpYoTG3aJk",
+  "source_locale": "tr",
+  "res_dir": "/Users/utkugulseven/AndroidStudioProjects/AstopiaAOS/app/src/main/res",
+  "locales": ["tr", "en", "az", "pt", "fr", "es"],
+  "fallback": "source"
+}
