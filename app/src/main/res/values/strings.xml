@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">String Auto</string>
+    <!-- Greeting shown on the home screen -->
+    <string name="greeting">Hello, %1$s! You have %2$d new messages.</string>
+    <string name="quoted">He said \"hi\" &amp; left</string>
+    <string name="rich">Welcome to <b>Android</b></string>
+    <string name="whitespace">"  padded  "</string>
+    <string name="debug_label" translatable="false">DEBUG</string>
+    <plurals name="items_count">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+    <string-array name="colors">
+        <item>Red</item>
+        <item>Green</item>
+        <item>Blue</item>
+    </string-array>
+</resources>

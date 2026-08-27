@@ -1,0 +1,177 @@
+"""push / pull / validate operations."""
+from __future__ import annotations
+
+import json
+import os
+from typing import Dict, List, Optional, Tuple
+
+from .sheet import Row, SheetClient
+from .xml_io import (
+    StringEntry,
+    parse_strings_xml,
+    placeholders,
+    write_strings_xml,
+)
+
+
+def _source_xml_path(res_dir: str) -> str:
+    return os.path.join(res_dir, "values", "strings.xml")
+
+
+def _locale_xml_path(res_dir: str, locale: str, source_locale: str) -> str:
+    sub = "values" if locale == source_locale else f"values-{locale}"
+    return os.path.join(res_dir, sub, "strings.xml")
+
+
+def load_source(res_dir: str) -> List[StringEntry]:
+    entries = parse_strings_xml(_source_xml_path(res_dir))
+    return [e for e in entries if e.translatable]
+
+
+# ---------------- push ----------------
+
+def push(config: dict) -> dict:
+    """XML → Sheet. Add missing keys, remove obsolete, preserve translations."""
+    src = load_source(config["res_dir"])
+    # Only push simple <string> entries to the sheet. Plurals/arrays stay in xml.
+    src_strings = [e for e in src if e.kind == "string"]
+    source_order = [e.key for e in src_strings]
+    source_meta = {e.key: e for e in src_strings}
+
+    sc = SheetClient(config["spreadsheet_id"])
+    summary: Dict[str, dict] = {}
+    warnings: List[str] = []
+
+    for locale in config["locales"]:
+        sc.ensure_tab(locale)
+        existing = {r.key: r for r in sc.read_rows(locale)}
+
+        # Detect stray keys in sheet not in source → key-lock violation warning
+        stray = [k for k in existing if k not in source_meta]
+        for k in stray:
+            warnings.append(f"[{locale}] stray key in sheet not in source xml: {k!r} — dropping")
+
+        merged: List[Row] = []
+        translated = 0
+        missing = 0
+        for key in source_order:
+            src_entry = source_meta[key]
+            if key in existing:
+                r = existing[key]
+                merged.append(Row(key=key, value=r.value))
+                if r.value:
+                    translated += 1
+                else:
+                    missing += 1
+            else:
+                if locale == config["source_locale"]:
+                    merged.append(Row(key=key, value=src_entry.value or ""))
+                    translated += 1
+                else:
+                    merged.append(Row(key=key, value=""))
+                    missing += 1
+
+        sc.replace_all(locale, merged)
+        summary[locale] = {"total": len(merged), "translated": translated, "missing": missing}
+
+    return {"op": "push", "summary": summary, "warnings": warnings}
+
+
+# ---------------- pull ----------------
+
+def pull(config: dict) -> dict:
+    src = load_source(config["res_dir"])
+    src_by_key = {e.key: e for e in src if e.kind == "string"}
+    # Non-string entries (plurals, string-array) stay in source xml only for now.
+    plurals_and_arrays = [e for e in src if e.kind != "string"]
+    source_order = [e.key for e in src if e.kind == "string"]
+
+    sc = SheetClient(config["spreadsheet_id"])
+    summary: Dict[str, dict] = {}
+    warnings: List[str] = []
+    fallback_mode = config.get("fallback", "source")  # "source" | "skip"
+
+    for locale in config["locales"]:
+        rows = {r.key: r for r in sc.read_rows(locale)}
+        entries: List[StringEntry] = []
+        translated = 0
+        missing = 0
+        for key in source_order:
+            src_entry = src_by_key[key]
+            r = rows.get(key)
+            if r and r.value:
+                entries.append(StringEntry(
+                    key=key, kind="string", value=r.value,
+                    comment=src_entry.comment, translatable=True,
+                ))
+                translated += 1
+            else:
+                missing += 1
+                if fallback_mode == "source":
+                    entries.append(StringEntry(
+                        key=key, kind="string", value=src_entry.value or "",
+                        comment=src_entry.comment, translatable=True,
+                    ))
+                # else: skip
+        # Append plurals/arrays untouched for non-source locales too (fallback to source content)
+        entries.extend(plurals_and_arrays)
+
+        out_path = _locale_xml_path(config["res_dir"], locale, config["source_locale"])
+        write_strings_xml(out_path, entries)
+        summary[locale] = {
+            "total": len(source_order), "translated": translated, "missing": missing,
+        }
+
+    return {"op": "pull", "summary": summary, "warnings": warnings}
+
+
+# ---------------- validate ----------------
+
+def validate(config: dict) -> Tuple[dict, int]:
+    src = load_source(config["res_dir"])
+    src_strings = {e.key: e for e in src if e.kind == "string"}
+
+    sc = SheetClient(config["spreadsheet_id"])
+    summary: Dict[str, dict] = {}
+    errors: List[str] = []
+
+    for locale in config["locales"]:
+        rows = {r.key: r for r in sc.read_rows(locale)}
+
+        # Missing keys
+        for k in src_strings:
+            if k not in rows:
+                errors.append(f"[{locale}] missing key: {k}")
+        # Reintroduced/removed keys
+        for k in rows:
+            if k not in src_strings:
+                errors.append(f"[{locale}] reintroduced/unknown key present in sheet: {k}")
+
+        translated = 0
+        missing = 0
+        for k, src_e in src_strings.items():
+            r = rows.get(k)
+            if not r or not r.value:
+                missing += 1
+                continue
+            translated += 1
+            src_ph = placeholders(src_e.value or "")
+            tgt_ph = placeholders(r.value)
+            if src_ph != tgt_ph:
+                errors.append(
+                    f"[{locale}] placeholder mismatch for {k!r}: "
+                    f"source={src_ph} target={tgt_ph}"
+                )
+        summary[locale] = {
+            "total": len(src_strings), "translated": translated, "missing": missing,
+        }
+
+    result = {"op": "validate", "summary": summary, "errors": errors}
+    return result, (1 if errors else 0)
+
+
+# ---------------- entry ----------------
+
+def load_config(path: str = "locsync.config.json") -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)

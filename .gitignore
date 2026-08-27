@@ -1,0 +1,14 @@
+# Service account credentials — never commit
+GOOGLE_SA_JSON
+GOOGLE_SA_JSON.json
+astopia-*.json
+*service-account*.json
+*-sa.json
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
