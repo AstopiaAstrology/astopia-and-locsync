@@ -2,12 +2,12 @@ import argparse
 import json
 import sys
 
-from .core import load_config, pull, push, validate
+from .core import load_config, pull, push, seed, validate
 
 
 def main() -> int:
     ap = argparse.ArgumentParser("locsync")
-    ap.add_argument("op", choices=["push", "pull", "validate"])
+    ap.add_argument("op", choices=["push", "pull", "validate", "seed"])
     ap.add_argument("--config", default="locsync.config.json")
     ap.add_argument("--strict", action="store_true",
                     help="validate: fail on untranslated keys too")
@@ -20,6 +20,10 @@ def main() -> int:
         return 0
     if args.op == "pull":
         out = pull(cfg)
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    if args.op == "seed":
+        out = seed(cfg)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
     out, code = validate(cfg, strict=args.strict)

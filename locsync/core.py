@@ -87,6 +87,55 @@ def push(config: dict) -> dict:
     return {"op": "push", "summary": summary, "warnings": warnings}
 
 
+# ---------------- seed ----------------
+
+def seed(config: dict) -> dict:
+    """One-time: upload existing values-<locale>/strings.xml translations to Sheet.
+
+    For each locale, reads the on-disk translated xml and populates the Sheet
+    tab so future pulls have the real translations instead of falling back to
+    source. Safe to re-run: overwrites sheet with xml (xml wins).
+    """
+    src = load_source(config["res_dir"])
+    src_strings = [e for e in src if e.kind == "string"]
+    source_order = [e.key for e in src_strings]
+    src_by_key = {e.key: e for e in src_strings}
+
+    sc = SheetClient(config["spreadsheet_id"])
+    summary: Dict[str, dict] = {}
+    warnings: List[str] = []
+
+    for locale in config["locales"]:
+        sc.ensure_tab(locale)
+        xml_path = _locale_xml_path(config["res_dir"], locale, config["source_locale"])
+        locale_by_key: Dict[str, str] = {}
+        if os.path.exists(xml_path):
+            for e in parse_strings_xml(xml_path):
+                if e.kind == "string" and e.translatable:
+                    locale_by_key[e.key] = e.value or ""
+        else:
+            warnings.append(f"[{locale}] xml file not found at {xml_path} — tab will be empty")
+
+        rows: List[Row] = []
+        translated = 0
+        missing = 0
+        for key in source_order:
+            val = locale_by_key.get(key, "")
+            # For source locale, always take source xml value
+            if locale == config["source_locale"]:
+                val = src_by_key[key].value or ""
+            rows.append(Row(key=key, value=val))
+            if val:
+                translated += 1
+            else:
+                missing += 1
+
+        sc.replace_all(locale, rows)
+        summary[locale] = {"total": len(rows), "translated": translated, "missing": missing}
+
+    return {"op": "seed", "summary": summary, "warnings": warnings}
+
+
 # ---------------- pull ----------------
 
 def pull(config: dict) -> dict:
