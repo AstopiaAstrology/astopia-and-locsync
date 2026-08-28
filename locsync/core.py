@@ -28,6 +28,12 @@ def load_source(res_dir: str) -> List[StringEntry]:
     return [e for e in entries if e.translatable]
 
 
+def load_all_source_keys(res_dir: str) -> set:
+    """All keys in source xml, including translatable=false — used to
+    distinguish 'orphan in sheet' from 'exists but not translatable'."""
+    return {e.key for e in parse_strings_xml(_source_xml_path(res_dir))}
+
+
 # ---------------- push ----------------
 
 def push(config: dict) -> dict:
@@ -37,6 +43,7 @@ def push(config: dict) -> dict:
     src_strings = [e for e in src if e.kind == "string"]
     source_order = [e.key for e in src_strings]
     source_meta = {e.key: e for e in src_strings}
+    all_keys = load_all_source_keys(config["res_dir"])  # includes translatable=false
 
     sc = SheetClient(config["spreadsheet_id"])
     summary: Dict[str, dict] = {}
@@ -46,10 +53,13 @@ def push(config: dict) -> dict:
         sc.ensure_tab(locale)
         existing = {r.key: r for r in sc.read_rows(locale)}
 
-        # Detect stray keys in sheet not in source → key-lock violation warning
-        stray = [k for k in existing if k not in source_meta]
-        for k in stray:
-            warnings.append(f"[{locale}] stray key in sheet not in source xml: {k!r} — dropping")
+        for k in existing:
+            if k in source_meta:
+                continue
+            if k in all_keys:
+                warnings.append(f"[{locale}] dropping non-translatable key from sheet: {k!r}")
+            else:
+                warnings.append(f"[{locale}] stray key not in source xml: {k!r} — dropping")
 
         merged: List[Row] = []
         translated = 0
@@ -136,6 +146,7 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
     """
     src = load_source(config["res_dir"])
     src_strings = {e.key: e for e in src if e.kind == "string"}
+    all_keys = load_all_source_keys(config["res_dir"])
 
     sc = SheetClient(config["spreadsheet_id"])
     summary: Dict[str, dict] = {}
@@ -146,7 +157,11 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
         rows = {r.key: r for r in sc.read_rows(locale)}
 
         for k in rows:
-            if k not in src_strings:
+            if k in src_strings:
+                continue
+            if k in all_keys:
+                warnings.append(f"[{locale}] non-translatable key in sheet (will be dropped on next push): {k}")
+            else:
                 errors.append(f"[{locale}] orphan key in sheet not in source xml: {k}")
 
         translated = 0
