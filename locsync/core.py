@@ -49,12 +49,14 @@ def _load_locale_translations(res_dir: str, locale: str, source_locale: str) -> 
 
 
 def push(config: dict) -> dict:
-    """XML -> Sheet. Add missing keys, remove obsolete, preserve translations.
+    """XML -> Sheet. Add missing keys, remove obsolete, sync translations.
 
-    Existing non-empty Sheet cells are the source of truth and never overwritten.
-    Empty (or new) cells are backfilled from a *real* translation in the on-disk
-    values-<locale>/strings.xml — real meaning present and different from the
-    source value (an equal value is a fallback copy, not a translation).
+    A *real* translation in the on-disk values-<locale>/strings.xml — present and
+    different from the source value (an equal value is a fallback copy, not a
+    translation) — is written to the sheet: it backfills an empty cell AND
+    updates an existing cell whose value differs. When xml has no real
+    translation (missing, or a source-equal fallback) the current sheet value is
+    kept untouched, so a real sheet translation is never clobbered by a fallback.
     """
     src = load_source(config["res_dir"])
     # Only push simple <string> entries to the sheet. Plurals/arrays stay in xml.
@@ -96,20 +98,27 @@ def push(config: dict) -> dict:
         translated = 0
         missing = 0
         backfilled = 0
+        updated = 0
         for key in source_order:
             src_entry = source_meta[key]
+            sheet_val = existing[key].value if key in existing else ""
             if is_source:
                 # Source locale always mirrors the source xml value.
-                sheet_val = existing[key].value if key in existing else (src_entry.value or "")
                 value = sheet_val or (src_entry.value or "")
-            elif key in existing and existing[key].value:
-                # Real translation already in the sheet -> authoritative, keep it.
-                value = existing[key].value
             else:
-                # Empty or new cell -> backfill from a real xml translation if we have one.
-                value = xml_translation(key)
-                if value:
-                    backfilled += 1
+                xml_val = xml_translation(key)
+                if xml_val:
+                    # A real xml translation wins — it fills an empty cell AND
+                    # updates an existing one that differs (don't skip it).
+                    value = xml_val
+                    if not sheet_val:
+                        backfilled += 1
+                    elif sheet_val != xml_val:
+                        updated += 1
+                else:
+                    # No real xml translation (missing or a source-equal fallback)
+                    # -> keep whatever the sheet already has, never clobber it.
+                    value = sheet_val
 
             merged.append(Row(key=key, value=value))
             if value:
@@ -119,11 +128,13 @@ def push(config: dict) -> dict:
 
         if backfilled:
             warnings.append(f"[{locale}] backfilled {backfilled} translation(s) from xml into empty sheet cells")
+        if updated:
+            warnings.append(f"[{locale}] updated {updated} existing sheet cell(s) from changed xml translations")
 
         sc.replace_all(locale, merged)
         summary[locale] = {
             "total": len(merged), "translated": translated,
-            "missing": missing, "backfilled": backfilled,
+            "missing": missing, "backfilled": backfilled, "updated": updated,
         }
 
     return {"op": "push", "summary": summary, "warnings": warnings}

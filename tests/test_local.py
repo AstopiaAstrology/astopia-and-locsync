@@ -107,6 +107,7 @@ def test_push_backfills_from_xml():
     src_entries = {e.key: e for e in parse_strings_xml(SRC)}
     src_app = src_entries["app_name"].value or ""
     src_greeting = src_entries["greeting"].value or ""
+    src_quoted = src_entries["quoted"].value or ""
 
     written = {}
 
@@ -117,7 +118,8 @@ def test_push_backfills_from_xml():
             if tab == "tr":
                 return [
                     sheet.Row(key="app_name", value=""),            # empty -> backfill
-                    sheet.Row(key="greeting", value="Merhaba %1$s %2$d"),  # keep
+                    sheet.Row(key="greeting", value="ESKI %1$s %2$d"),     # differs -> update
+                    sheet.Row(key="quoted", value="Sheette var"),   # xml fallback -> keep
                 ]
             return []
         def replace_all(self, tab, rows):
@@ -130,10 +132,14 @@ def test_push_backfills_from_xml():
         os.makedirs(os.path.join(res_dir, "values"))
         with open(SRC) as f, open(os.path.join(res_dir, "values", "strings.xml"), "w") as g:
             g.write(f.read())
-        # on-disk tr translations: app_name real, greeting a fallback copy of source
+        # on-disk tr translations:
+        #  app_name  -> real, differs from source  (empty sheet  -> backfill)
+        #  greeting  -> real, differs from source & sheet (sheet set -> update)
+        #  quoted    -> fallback copy of source     (sheet set    -> keep)
         tr_entries = [
             StringEntry(key="app_name", kind="string", value="Uygulama Adı"),
-            StringEntry(key="greeting", kind="string", value=src_greeting),
+            StringEntry(key="greeting", kind="string", value="YENI %1$s %2$d"),
+            StringEntry(key="quoted", kind="string", value=src_quoted),
         ]
         write_strings_xml(os.path.join(res_dir, "values-tr", "strings.xml"), tr_entries)
 
@@ -144,12 +150,14 @@ def test_push_backfills_from_xml():
         out = core.push(cfg)
 
     tr = written["tr"]
-    assert tr["app_name"] == "Uygulama Adı"          # backfilled from xml
-    assert tr["greeting"] == "Merhaba %1$s %2$d"      # existing sheet value kept
+    assert tr["app_name"] == "Uygulama Adı"          # backfilled into empty cell
+    assert tr["greeting"] == "YENI %1$s %2$d"         # existing cell UPDATED from xml
+    assert tr["quoted"] == "Sheette var"              # xml was fallback -> sheet kept
     assert out["summary"]["tr"]["backfilled"] == 1
-    # a hypothetical empty cell whose xml equals source must NOT be backfilled
-    assert src_app != "Uygulama Adı"
-    print("OK push_backfills_from_xml", out["summary"])
+    assert out["summary"]["tr"]["updated"] == 1
+    # sanity: the "real" values genuinely differ from source
+    assert src_app != "Uygulama Adı" and src_greeting != "YENI %1$s %2$d"
+    print("OK push_syncs_from_xml", out["summary"])
 
 
 if __name__ == "__main__":
