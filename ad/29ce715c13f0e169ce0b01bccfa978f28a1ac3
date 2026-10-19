@@ -1,0 +1,21 @@
+locsync/core.py
+  s_422499de94f2d0::t_bfcd09611c315d 39-50,52-58,73-85,98,101-107,109-121,124-127
+tests/test_local.py
+  s_422499de94f2d0::t_c4774e92eba06a 102-154,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ad29ce715c13f0e169ce0b01bccfa978f28a1ac3",
+  "prompts": {},
+  "sessions": {
+    "s_422499de94f2d0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "35bd0a92-7f84-4c7a-b24f-01a319bd47a4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "utku glsvn <utku.glsvn@gmail.com>"
+    }
+  }
+}
