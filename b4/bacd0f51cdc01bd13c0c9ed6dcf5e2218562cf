@@ -1,0 +1,26 @@
+tests/test_local.py
+  s_422499de94f2d0::t_932389dbf1317b 121-122
+  s_422499de94f2d0::t_c4774e92eba06a 102-109,111-120,123-134,139-140,143-152,156,161-162,168
+  s_422499de94f2d0::t_c052e9820d34c0 135-138,141-142,153-155,157-160
+  s_422499de94f2d0::t_341ce7c9674d63 110
+locsync/core.py
+  s_422499de94f2d0::t_bfcd09611c315d 39-50,60,75-87,100,105-107,122-130,135-136,138
+  s_422499de94f2d0::t_9951be39d028fd 52-59
+  s_422499de94f2d0::t_d0d7a545aceeff 101,104,109-117,119-121,131-132,137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4bacd0f51cdc01bd13c0c9ed6dcf5e2218562cf",
+  "prompts": {},
+  "sessions": {
+    "s_422499de94f2d0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "35bd0a92-7f84-4c7a-b24f-01a319bd47a4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
