@@ -99,9 +99,63 @@ def test_pull_with_fake_sheet(monkeypatch=None):
         print("OK pull_with_fake_sheet", out["summary"])
 
 
+def test_push_backfills_from_xml():
+    """push() fills empty sheet cells from a real xml translation, keeps existing
+    sheet values, and never treats a source-equal fallback as a translation."""
+    from locsync import core, sheet
+
+    src_entries = {e.key: e for e in parse_strings_xml(SRC)}
+    src_app = src_entries["app_name"].value or ""
+    src_greeting = src_entries["greeting"].value or ""
+
+    written = {}
+
+    class FakeClient:
+        def __init__(self, sid): pass
+        def ensure_tab(self, tab): return 0
+        def read_rows(self, tab):
+            if tab == "tr":
+                return [
+                    sheet.Row(key="app_name", value=""),            # empty -> backfill
+                    sheet.Row(key="greeting", value="Merhaba %1$s %2$d"),  # keep
+                ]
+            return []
+        def replace_all(self, tab, rows):
+            written[tab] = {r.key: r.value for r in rows}
+
+    core.SheetClient = FakeClient  # type: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        res_dir = os.path.join(tmp, "res")
+        os.makedirs(os.path.join(res_dir, "values"))
+        with open(SRC) as f, open(os.path.join(res_dir, "values", "strings.xml"), "w") as g:
+            g.write(f.read())
+        # on-disk tr translations: app_name real, greeting a fallback copy of source
+        tr_entries = [
+            StringEntry(key="app_name", kind="string", value="Uygulama Adı"),
+            StringEntry(key="greeting", kind="string", value=src_greeting),
+        ]
+        write_strings_xml(os.path.join(res_dir, "values-tr", "strings.xml"), tr_entries)
+
+        cfg = {
+            "spreadsheet_id": "x", "source_locale": "en",
+            "res_dir": res_dir, "locales": ["tr"], "fallback": "source",
+        }
+        out = core.push(cfg)
+
+    tr = written["tr"]
+    assert tr["app_name"] == "Uygulama Adı"          # backfilled from xml
+    assert tr["greeting"] == "Merhaba %1$s %2$d"      # existing sheet value kept
+    assert out["summary"]["tr"]["backfilled"] == 1
+    # a hypothetical empty cell whose xml equals source must NOT be backfilled
+    assert src_app != "Uygulama Adı"
+    print("OK push_backfills_from_xml", out["summary"])
+
+
 if __name__ == "__main__":
     test_parse_source()
     test_roundtrip()
     test_placeholders()
     test_pull_with_fake_sheet()
+    test_push_backfills_from_xml()
     print("ALL TESTS PASSED")

@@ -36,8 +36,26 @@ def load_all_source_keys(res_dir: str) -> set:
 
 # ---------------- push ----------------
 
+def _load_locale_translations(res_dir: str, locale: str, source_locale: str) -> Dict[str, str]:
+    """Read on-disk values-<locale>/strings.xml -> {key: value} for <string> entries."""
+    xml_path = _locale_xml_path(res_dir, locale, source_locale)
+    out: Dict[str, str] = {}
+    if not os.path.exists(xml_path):
+        return out
+    for e in parse_strings_xml(xml_path):
+        if e.kind == "string" and e.translatable and e.value:
+            out[e.key] = e.value
+    return out
+
+
 def push(config: dict) -> dict:
-    """XML → Sheet. Add missing keys, remove obsolete, preserve translations."""
+    """XML -> Sheet. Add missing keys, remove obsolete, preserve translations.
+
+    Existing non-empty Sheet cells are the source of truth and never overwritten.
+    Empty (or new) cells are backfilled from a *real* translation in the on-disk
+    values-<locale>/strings.xml — real meaning present and different from the
+    source value (an equal value is a fallback copy, not a translation).
+    """
     src = load_source(config["res_dir"])
     # Only push simple <string> entries to the sheet. Plurals/arrays stay in xml.
     src_strings = [e for e in src if e.kind == "string"]
@@ -52,6 +70,19 @@ def push(config: dict) -> dict:
     for locale in config["locales"]:
         sc.ensure_tab(locale)
         existing = {r.key: r for r in sc.read_rows(locale)}
+        is_source = locale == config["source_locale"]
+        xml_tr = {} if is_source else _load_locale_translations(
+            config["res_dir"], locale, config["source_locale"]
+        )
+
+        def xml_translation(key: str) -> str:
+            """A real translation from xml for this key, else empty."""
+            val = xml_tr.get(key, "")
+            if not val:
+                return ""
+            if val == (source_meta[key].value or ""):
+                return ""  # equal to source => fallback copy, not a translation
+            return val
 
         for k in existing:
             if k in source_meta:
@@ -64,25 +95,36 @@ def push(config: dict) -> dict:
         merged: List[Row] = []
         translated = 0
         missing = 0
+        backfilled = 0
         for key in source_order:
             src_entry = source_meta[key]
-            if key in existing:
-                r = existing[key]
-                merged.append(Row(key=key, value=r.value))
-                if r.value:
-                    translated += 1
-                else:
-                    missing += 1
+            if is_source:
+                # Source locale always mirrors the source xml value.
+                sheet_val = existing[key].value if key in existing else (src_entry.value or "")
+                value = sheet_val or (src_entry.value or "")
+            elif key in existing and existing[key].value:
+                # Real translation already in the sheet -> authoritative, keep it.
+                value = existing[key].value
             else:
-                if locale == config["source_locale"]:
-                    merged.append(Row(key=key, value=src_entry.value or ""))
-                    translated += 1
-                else:
-                    merged.append(Row(key=key, value=""))
-                    missing += 1
+                # Empty or new cell -> backfill from a real xml translation if we have one.
+                value = xml_translation(key)
+                if value:
+                    backfilled += 1
+
+            merged.append(Row(key=key, value=value))
+            if value:
+                translated += 1
+            else:
+                missing += 1
+
+        if backfilled:
+            warnings.append(f"[{locale}] backfilled {backfilled} translation(s) from xml into empty sheet cells")
 
         sc.replace_all(locale, merged)
-        summary[locale] = {"total": len(merged), "translated": translated, "missing": missing}
+        summary[locale] = {
+            "total": len(merged), "translated": translated,
+            "missing": missing, "backfilled": backfilled,
+        }
 
     return {"op": "push", "summary": summary, "warnings": warnings}
 
