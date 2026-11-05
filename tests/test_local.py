@@ -53,6 +53,13 @@ def test_roundtrip():
 def test_placeholders():
     assert placeholders("Hello %1$s you have %2$d msgs") == sorted(["%1$s", "%2$d"])
     assert placeholders("plain text") == []
+    # Literal percent signs in prose are not placeholders
+    assert placeholders("🎁 Tap to get your 50% discount gift") == []
+    assert placeholders("🎁 50% de Desconto") == []
+    assert placeholders("Get 50% off today") == []
+    assert placeholders("🎁%50 indirim") == []
+    # Real placeholders still detected
+    assert placeholders("%d%% off, %-5s and %05.2f") == sorted(["%d", "%%", "%-5s", "%05.2f"])
     print("OK placeholders")
 
 

@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from lxml import etree
 
-PLACEHOLDER_RE = re.compile(r"%(?:\d+\$)?[-#+ 0,(]?\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtTn%]")
+# The space flag ("% d") is deliberately not supported: Android strings never use it, and
+# allowing it turns literal percent signs in prose ("50% discount", "50% de desconto")
+# into false placeholders that fail validation.
+PLACEHOLDER_RE = re.compile(r"%(?:\d+\$)?[-#+0,(]?\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtTn%]")
 
 
 @dataclass
