@@ -1,0 +1,21 @@
+locsync/xml_io.py
+  s_ca3cd9a1cc43f0::t_5440ee1dfc548a 10-13
+tests/test_local.py
+  s_ca3cd9a1cc43f0::t_2bde1c26bf6716 56-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85fae721d14f7b4067323be2c1faf0047bafa02d",
+  "prompts": {},
+  "sessions": {
+    "s_ca3cd9a1cc43f0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bfb59e88-f2a8-4b00-a264-89fd7514286d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "utku glsvn <utku.glsvn@gmail.com>"
+    }
+  }
+}
