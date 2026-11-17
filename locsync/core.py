@@ -103,8 +103,10 @@ def push(config: dict) -> dict:
             src_entry = source_meta[key]
             sheet_val = existing[key].value if key in existing else ""
             if is_source:
-                # Source locale always mirrors the source xml value.
-                value = sheet_val or (src_entry.value or "")
+                # Source locale always mirrors the source xml value: the xml is the
+                # source of truth, so an edited source text must replace the old
+                # one in the sheet instead of the sheet's copy surviving.
+                value = src_entry.value or ""
             else:
                 xml_val = xml_translation(key)
                 if xml_val:
@@ -204,6 +206,11 @@ def pull(config: dict) -> dict:
     fallback_mode = config.get("fallback", "source")  # "source" | "skip"
 
     for locale in config["locales"]:
+        if locale == config["source_locale"]:
+            # values/strings.xml is hand-edited source, never generated. Writing it
+            # from the sheet would revert newer source text and drop entries the
+            # sheet doesn't hold (translatable="false", comments, ordering).
+            continue
         rows = {r.key: r for r in sc.read_rows(locale)}
         entries: List[StringEntry] = []
         translated = 0
