@@ -34,7 +34,9 @@ python3 tests/test_local.py
 - **validate** (CI gate, non-zero exit on failure):
   - missing keys per locale
   - placeholder count/order mismatch (`%1$s`, `%d`, …)
-  - reintroduced/unknown keys in the sheet
+  - keys in the sheet that are no longer in the source xml: a warning, since the
+    post-merge `push` drops them (an error only with `--strict`). Deleting a
+    string in a PR therefore doesn't block it.
 
 ## CI
 - PR touching source xml → `push`.

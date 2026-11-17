@@ -242,9 +242,13 @@ def pull(config: dict) -> dict:
 def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
     """Validate source ↔ sheet consistency.
 
-    Hard errors (always fail): placeholder mismatch, orphan keys in sheet.
-    Soft (fail only in --strict): missing translations per locale.
+    Hard errors (always fail): placeholder mismatch.
+    Soft (fail only in --strict): missing translations, keys in the sheet that
+    are no longer in the source xml.
     New-in-PR keys never fail: post-merge push will add them.
+    Removed-in-PR keys never fail either: post-merge push drops them from the
+    sheet. Failing on them would block every PR that deletes a string, because
+    the sheet only catches up after the merge.
     """
     src = load_source(config["res_dir"])
     src_strings = {e.key: e for e in src if e.kind == "string"}
@@ -258,13 +262,14 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
     for locale in config["locales"]:
         rows = {r.key: r for r in sc.read_rows(locale)}
 
+        removed: List[str] = []
         for k in rows:
             if k in src_strings:
                 continue
             if k in all_keys:
                 warnings.append(f"[{locale}] non-translatable key in sheet (will be dropped on next push): {k}")
             else:
-                errors.append(f"[{locale}] orphan key in sheet not in source xml: {k}")
+                removed.append(k)
 
         translated = 0
         missing = 0
@@ -286,6 +291,10 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
                     f"[{locale}] placeholder mismatch for {k!r}: "
                     f"source={src_ph} target={tgt_ph}"
                 )
+        if removed:
+            msg = (f"[{locale}] {len(removed)} key(s) in sheet not in source xml "
+                   f"(removed — will be dropped on next push): {', '.join(sorted(removed))}")
+            (errors if strict else warnings).append(msg)
         if new_in_pr:
             warnings.append(f"[{locale}] {new_in_pr} new key(s) not yet in sheet — will be pushed post-merge")
         if strict and missing:
