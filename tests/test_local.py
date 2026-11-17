@@ -167,10 +167,52 @@ def test_push_backfills_from_xml():
     print("OK push_syncs_from_xml", out["summary"])
 
 
+def test_validate_removed_keys_do_not_fail():
+    """A key deleted from source xml but still in the sheet (the post-merge push
+    has not run yet) is a warning, not an error — unless --strict."""
+    from locsync import core, sheet
+
+    class FakeClient:
+        def __init__(self, sid): pass
+        def ensure_tab(self, tab): return 0
+        def read_rows(self, tab):
+            return [
+                sheet.Row(key="app_name", value="Uygulama"),
+                sheet.Row(key="greeting", value="Merhaba %1$s %2$d"),
+                sheet.Row(key="deleted_in_pr", value="Silindi"),
+            ]
+        def replace_all(self, tab, rows): pass
+
+    core.SheetClient = FakeClient  # type: ignore
+    cfg = {
+        "spreadsheet_id": "x", "source_locale": "en",
+        "res_dir": os.path.dirname(os.path.dirname(SRC)), "locales": ["tr"],
+    }
+
+    out, code = core.validate(cfg)
+    assert code == 0, out["errors"]
+    assert any("deleted_in_pr" in w for w in out["warnings"])
+
+    out, code = core.validate(cfg, strict=True)
+    assert code == 1
+    assert any("deleted_in_pr" in e for e in out["errors"])
+
+    # Placeholder mismatches still fail without --strict.
+    class BadPlaceholder(FakeClient):
+        def read_rows(self, tab):
+            return [sheet.Row(key="greeting", value="Merhaba %1$s")]
+
+    core.SheetClient = BadPlaceholder  # type: ignore
+    out, code = core.validate(cfg)
+    assert code == 1 and any("placeholder mismatch" in e for e in out["errors"])
+    print("OK validate_removed_keys_do_not_fail")
+
+
 if __name__ == "__main__":
     test_parse_source()
     test_roundtrip()
     test_placeholders()
     test_pull_with_fake_sheet()
     test_push_backfills_from_xml()
+    test_validate_removed_keys_do_not_fail()
     print("ALL TESTS PASSED")
