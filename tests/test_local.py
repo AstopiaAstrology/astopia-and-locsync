@@ -208,6 +208,51 @@ def test_validate_removed_keys_do_not_fail():
     print("OK validate_removed_keys_do_not_fail")
 
 
+def test_pull_never_writes_source_and_push_mirrors_source():
+    """With the source locale listed in `locales`, pull must leave
+    values/strings.xml untouched (it keeps translatable=false entries and newer
+    text), and push must overwrite the source tab with the xml text."""
+    from locsync import core, sheet
+
+    written = {}
+
+    class FakeClient:
+        def __init__(self, sid): pass
+        def ensure_tab(self, tab): return 0
+        def read_rows(self, tab):
+            # The sheet holds a stale copy of the source text.
+            return [sheet.Row(key="app_name", value="Old source text")]
+        def replace_all(self, tab, rows):
+            written[tab] = {r.key: r.value for r in rows}
+
+    core.SheetClient = FakeClient  # type: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        res_dir = os.path.join(tmp, "res")
+        os.makedirs(os.path.join(res_dir, "values"))
+        src_path = os.path.join(res_dir, "values", "strings.xml")
+        with open(SRC) as f, open(src_path, "w") as g:
+            g.write(f.read())
+        with open(src_path) as f:
+            before = f.read()
+        cfg = {
+            "spreadsheet_id": "x", "source_locale": "en",
+            "res_dir": res_dir, "locales": ["en", "tr"], "fallback": "source",
+        }
+
+        out = core.pull(cfg)
+        with open(src_path) as f:
+            assert f.read() == before, "pull rewrote the source xml"
+        assert "en" not in out["summary"]
+        assert os.path.exists(os.path.join(res_dir, "values-tr", "strings.xml"))
+
+        core.push(cfg)
+        src_app = {e.key: e for e in parse_strings_xml(src_path)}["app_name"].value
+        assert written["en"]["app_name"] == src_app  # stale sheet text replaced
+        assert written["tr"]["app_name"] == "Old source text"  # translations kept
+    print("OK pull_never_writes_source_and_push_mirrors_source")
+
+
 if __name__ == "__main__":
     test_parse_source()
     test_roundtrip()
@@ -215,4 +260,5 @@ if __name__ == "__main__":
     test_pull_with_fake_sheet()
     test_push_backfills_from_xml()
     test_validate_removed_keys_do_not_fail()
+    test_pull_never_writes_source_and_push_mirrors_source()
     print("ALL TESTS PASSED")

@@ -29,8 +29,8 @@ python3 tests/test_local.py
 ```
 
 ## Behavior
-- **push**: adds new keys as empty untranslated rows; drops rows for keys removed from xml; never overwrites existing translations; stray sheet keys are logged and dropped.
-- **pull**: writes `values-<locale>/strings.xml` from the sheet; rows with empty value or `translated=false` fall back to source (per `fallback` config: `source` or `skip`). Plurals and string-arrays live only in xml and are copied through.
+- **push**: copies the source xml text into the source locale's tab (an edited source string replaces the old one); adds new keys as empty untranslated rows; drops rows for keys removed from xml; never overwrites existing translations; stray sheet keys are logged and dropped.
+- **pull**: writes `values-<locale>/strings.xml` from the sheet and never touches the source locale's `values/strings.xml`; rows with empty value or `translated=false` fall back to source (per `fallback` config: `source` or `skip`). Plurals and string-arrays live only in xml and are copied through.
 - **validate** (CI gate, non-zero exit on failure):
   - missing keys per locale
   - placeholder count/order mismatch (`%1$s`, `%d`, …)
