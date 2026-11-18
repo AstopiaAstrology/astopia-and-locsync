@@ -141,6 +141,85 @@ def _escape_android_value(raw_inner: str) -> str:
     return escaped
 
 
+# ---------- Sheet value clean-up ----------
+
+# iOS object placeholders: "%@" and positional "%1$@". "%%" is matched first so an
+# escaped percent sign ("%%@") is never read as a placeholder.
+_IOS_TOKEN_RE = re.compile(r"%%|%(\d+\$)?@")
+
+
+def has_ios_placeholder(s: str) -> bool:
+    return any(m.group(0) != "%%" for m in _IOS_TOKEN_RE.finditer(s or ""))
+
+
+def convert_ios_placeholders(s: str) -> str:
+    """Turn iOS "%@" / "%1$@" into Android "%s" / "%1$s".
+
+    A single non-positional "%@" becomes "%s". When the value has several
+    placeholders, each "%@" gets its position among all non-positional
+    placeholders ("%1$s", "%2$s", …) so the argument order stays as written.
+    """
+    if not has_ios_placeholder(s):
+        return s
+    # Count every non-positional placeholder (Android ones and %@) in order.
+    tokens = [m for m in re.finditer(r"%%|%\d+\$@|%@|" + PLACEHOLDER_RE.pattern, s)]
+    seq = [m for m in tokens if m.group(0) != "%%" and "$" not in m.group(0)]
+    numbered = len(seq) > 1
+    index = {m.start(): i + 1 for i, m in enumerate(seq)}
+    out: List[str] = []
+    last = 0
+    for m in tokens:
+        tok = m.group(0)
+        if not tok.endswith("@"):
+            continue
+        out.append(s[last:m.start()])
+        if "$" in tok:
+            out.append(tok[:-1] + "s")
+        elif numbered:
+            out.append(f"%{index[m.start()]}$s")
+        else:
+            out.append("%s")
+        last = m.end()
+    out.append(s[last:])
+    return "".join(out)
+
+
+def _is_escaped(s: str, pos: int) -> bool:
+    """True if the char at pos is preceded by an odd number of backslashes."""
+    n = 0
+    while pos - 1 - n >= 0 and s[pos - 1 - n] == "\\":
+        n += 1
+    return n % 2 == 1
+
+
+def is_wrapped_in_quotes(s: str) -> bool:
+    """True if the whole value is one pair of bare double quotes: "…".
+
+    The closing quote must not be backslash-escaped and the inside must hold no
+    other bare double quote, so "a" and "b" (two quoted words) is not a pair.
+    """
+    if not s or len(s) < 2 or s[0] != '"' or s[-1] != '"' or _is_escaped(s, len(s) - 1):
+        return False
+    inner = s[1:-1]
+    return not any(ch == '"' and not _is_escaped(inner, i) for i, ch in enumerate(inner))
+
+
+def unwrap_quotes(s: str) -> str:
+    """Drop an outer "…" pair, keeping the inner text exactly (spaces included).
+
+    Translators (and the source column, which mirrors Android's own quoting)
+    wrap a value in quotes to keep leading/trailing spaces. Escaping those
+    quotes would print them on screen; the emitter re-adds Android quoting when
+    the inner text needs it.
+    """
+    return s[1:-1] if is_wrapped_in_quotes(s) else s
+
+
+def clean_value(s: str) -> str:
+    """Normalise a sheet (or source) value before it is written to xml."""
+    return convert_ios_placeholders(unwrap_quotes(s))
+
+
 def _looks_like_xml_markup(s: str) -> bool:
     return "<" in s and ">" in s
 
@@ -154,11 +233,14 @@ def render_value_inner(raw: str) -> str:
     """
     if raw is None:
         return ""
+    raw = clean_value(raw)
     if _looks_like_xml_markup(raw):
         # Attempt to parse as fragment; if it fails, fall back to escaping.
         try:
             etree.fromstring(f"<r>{raw}</r>")
-            return raw
+            # Markup passes through as is, so re-add the quotes that keep
+            # leading/trailing spaces (clean_value may have just removed them).
+            return f'"{raw}"' if raw != raw.strip() else raw
         except etree.XMLSyntaxError:
             pass
     return _escape_android_value(raw)
