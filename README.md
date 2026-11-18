@@ -25,15 +25,26 @@ python -m locsync validate   # CI gate: missing keys, placeholder mismatches
 
 Run offline sanity tests:
 ```bash
-python3 tests/test_local.py
+python3 -m pytest tests
 ```
 
 ## Behavior
 - **push**: copies the source xml text into the source locale's tab (an edited source string replaces the old one); adds new keys as empty untranslated rows; drops rows for keys removed from xml; never overwrites existing translations; stray sheet keys are logged and dropped.
 - **pull**: writes `values-<locale>/strings.xml` from the sheet and never touches the source locale's `values/strings.xml`; rows with empty value or `translated=false` fall back to source (per `fallback` config: `source` or `skip`). Plurals and string-arrays live only in xml and are copied through.
+  Before writing, each value is cleaned up:
+  - a value wrapped in one pair of double quotes (`"Consulta a nuestros "`) loses
+    that pair; the inner text is kept exactly, and Android quoting is re-added only
+    when it has leading/trailing spaces. Quotes inside the text stay escaped (`\"`).
+  - iOS `%@` becomes `%s`; with several placeholders each `%@` becomes `%1$s`,
+    `%2$s`, … by position. `%1$@` becomes `%1$s`.
 - **validate** (CI gate, non-zero exit on failure):
   - missing keys per locale
   - placeholder count/order mismatch (`%1$s`, `%d`, …)
+  - a translation with placeholders whose source has none
+  - an iOS placeholder (`%@`, `%1$@`) in a translation
+  - a translation wrapped in quotes as a whole when its source is not (a warning
+    when the source is quoted too, since `push` mirrors Android quoting into the
+    sheet and `pull` removes it)
   - keys in the sheet that are no longer in the source xml: a warning, since the
     post-merge `push` drops them (an error only with `--strict`). Deleting a
     string in a PR therefore doesn't block it.

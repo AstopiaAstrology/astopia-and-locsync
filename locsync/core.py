@@ -8,6 +8,9 @@ from typing import Dict, List, Optional, Tuple
 from .sheet import Row, SheetClient
 from .xml_io import (
     StringEntry,
+    convert_ios_placeholders,
+    has_ios_placeholder,
+    is_wrapped_in_quotes,
     parse_strings_xml,
     placeholders,
     write_strings_xml,
@@ -249,7 +252,13 @@ def pull(config: dict) -> dict:
 def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
     """Validate source ↔ sheet consistency.
 
-    Hard errors (always fail): placeholder mismatch.
+    Hard errors (always fail):
+      - placeholder mismatch, including a translation that has placeholders
+        while its source has none;
+      - an iOS placeholder ("%@", "%1$@") in a translation;
+      - a translation wrapped in quotes as a whole ("…") when its source is
+        not. When the source is quoted too (Android quoting to keep spaces,
+        mirrored into the sheet by push) it is only a warning: pull unwraps it.
     Soft (fail only in --strict): missing translations, keys in the sheet that
     are no longer in the source xml.
     New-in-PR keys never fail: post-merge push will add them.
@@ -281,6 +290,7 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
         translated = 0
         missing = 0
         new_in_pr = 0
+        mirrored_quotes: List[str] = []
         for k, src_e in src_strings.items():
             r = rows.get(k)
             if r is None:
@@ -291,13 +301,36 @@ def validate(config: dict, strict: bool = False) -> Tuple[dict, int]:
                 missing += 1
                 continue
             translated += 1
+            if has_ios_placeholder(r.value):
+                errors.append(
+                    f"[{locale}] iOS placeholder %@ in {k!r}: use Android %s / %1$s "
+                    f"(value={r.value!r})"
+                )
+            if is_wrapped_in_quotes(r.value):
+                if is_wrapped_in_quotes(src_e.value or ""):
+                    mirrored_quotes.append(k)
+                else:
+                    errors.append(
+                        f"[{locale}] {k!r} is wrapped in quotes but its source is not; "
+                        f"remove the outer quotes in the sheet (value={r.value!r})"
+                    )
             src_ph = placeholders(src_e.value or "")
-            tgt_ph = placeholders(r.value)
-            if src_ph != tgt_ph:
+            # Compare what pull will write: %@ is converted to %s there.
+            tgt_ph = placeholders(convert_ios_placeholders(r.value))
+            if tgt_ph and not src_ph:
+                errors.append(
+                    f"[{locale}] {k!r} has placeholders {tgt_ph} but its source has none"
+                )
+            elif src_ph != tgt_ph:
                 errors.append(
                     f"[{locale}] placeholder mismatch for {k!r}: "
                     f"source={src_ph} target={tgt_ph}"
                 )
+        if mirrored_quotes:
+            warnings.append(
+                f"[{locale}] {len(mirrored_quotes)} quoted value(s) matching quoted source "
+                f"(pull removes the quotes): {', '.join(sorted(mirrored_quotes))}"
+            )
         if removed:
             msg = (f"[{locale}] {len(removed)} key(s) in sheet not in source xml "
                    f"(removed — will be dropped on next push): {', '.join(sorted(removed))}")
